@@ -1,0 +1,74 @@
+# Authentication Bypass in a 2FA Web Application
+
+**Type:** Course project (team), web application security
+**Topic:** Broken authentication, 2FA bypass
+**Stack:** React, Supabase authentication with authenticator-app (TOTP) MFA
+**Tools:** Manual testing in a web browser
+
+## Summary
+While testing a team-built web app for a security course, I found that its
+two-factor authentication wasn't actually enforced. A user who entered a
+correct username and password could skip the code prompt entirely, and
+entering an incorrect code didn't block access either.
+
+## About the app
+The app was a fighting-game wiki where users could create accounts and
+post combos for each character. Login required a username and password,
+followed by a rotating code from the Microsoft Authenticator app.
+
+## How I found it
+1. Logged in with a valid username and password. The app then asked for the
+   authenticator code.
+2. Instead of entering a code, I clicked the Home link. The app let me into
+   the protected pages.
+3. I then tried an incorrect code. The app still let me through.
+
+## Root cause
+The app treated the user as logged in as soon as the password was
+verified. The code prompt was shown, but nothing stopped the user from
+navigating past it, and the pages never checked whether the second factor
+had been completed.
+
+## Impact
+2FA gave no real protection. An attacker with a stolen or phished password
+could have logged in without the second factor, which is the exact
+situation 2FA exists to defend against.
+
+## Fix
+I added a route guard component that checks the session's multi-factor
+authentication level through the auth provider's MFA API before rendering a
+protected page. If the account has an authenticator enrolled but the
+session hasn't completed verification, the app signs the user out and
+redirects to the login page. I wrapped the home and character pages in this
+guard. I also required MFA verification on the password reset page before a
+new password can be set.
+
+## Retesting
+I tested both attack paths again: navigating directly to a protected page
+after the password step, and submitting an incorrect code. In both cases
+access was blocked.
+
+## Limitations
+- The guard runs in the browser, so it controls what the app displays but
+  doesn't stop someone from calling the backend API directly with a
+  password-only session. Enforcing the MFA level in the database's access
+  rules would close that gap. Changing those rules wasn't something I had
+  access to do.
+- I didn't test what the guard does when nobody is logged in at all, so I
+  can't say that case is covered.
+
+## Additional hardening
+User-supplied input is a common attack surface, so I added filtering to the
+combo (comment) form that strips angle brackets and limits the length. This
+was a precaution, and I didn't find an injection flaw. React also escapes
+rendered text by default, which is the main defense against XSS, so this
+filtering is an extra layer and not a complete fix.
+
+## What I learned
+- Hiding the next page isn't a security control. Every authentication step
+  has to be enforced where the data lives, not only in the interface.
+- An authentication flow should track "password verified but 2FA pending"
+  separately from "fully logged in."
+- A fix can close the bug you found and still leave a weaker layer behind.
+  Writing down what it doesn't cover is part of the job.
+- After fixing a bug, retest the original attack to confirm the fix works.
